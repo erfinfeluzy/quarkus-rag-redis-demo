@@ -3,46 +3,41 @@
 Aplikasi Quarkus (JVM mode) dengan chat AI berbasis Ollama, RAG (embedding disimpan di Redis), dan database MySQL.
 Dokumen ini menjelaskan cara menjalankan semuanya di Docker.
 
+- Source code: [github.com/erfinfeluzy/quarkus-rag-redis-demo](https://github.com/erfinfeluzy/quarkus-rag-redis-demo)
+- Image aplikasi: [quay.io/efeluzy/quarkus-rag-redis](https://quay.io/repository/efeluzy/quarkus-rag-redis)
+
+Clone source code:
+
+```powershell
+git clone https://github.com/erfinfeluzy/quarkus-rag-redis-demo.git
+cd quarkus-rag-redis-demo
+```
+
 ## Arsitektur
+
+![High level architecture](architecture.svg)
 
 Semua container berada di satu network Docker buatan sendiri, `demo-net`. Di network seperti ini Docker
 menyediakan DNS internal, jadi container saling memanggil pakai nama container-nya.
 
 | Service  | Container    | Alamat dari dalam network         | Port di laptop    |
 | -------- | ------------ | --------------------------------- | ----------------- |
-| MySQL    | `demo-mysql` | `jdbc:mysql://demo-mysql:3306/hr` | `127.0.0.1:3306`  |
-| Redis    | `demo-redis` | `redis://demo-redis:6379`         | `127.0.0.1:6379`  |
-| Ollama   | `ollama`     | `http://ollama:11434`             | `127.0.0.1:11434` |
-| Aplikasi | `demo-app`   | `http://demo-app:8080`            | `127.0.0.1:8080`  |
+| MySQL    | `demo-mysql` | `jdbc:mysql://demo-mysql:3306/hr` | `3306`            |
+| Redis    | `demo-redis` | `redis://demo-redis:6379`         | `6379`            |
+| Ollama   | `ollama`     | `http://ollama:11434`             | `11434`           |
+| Aplikasi | `demo-app`   | `http://demo-app:8080`            | `8080`            |
 
-Port ke laptop (`-p 127.0.0.1:...`) hanya dibutuhkan supaya service bisa diakses dari laptop (browser, DBeaver,
+Port ke laptop (`-p ...`) hanya dibutuhkan supaya service bisa diakses dari laptop (browser, DBeaver,
 redis-cli). Antar container tidak butuh `-p`.
 
-## Prasyarat
+## Requirement
 
-- Docker Desktop
+- Docker Desktop, bisa juga diganti Podman
 - JDK 25 (untuk build jar dengan `mvnw`)
-- GPU NVIDIA + driver terbaru untuk Ollama (`--gpus all`). Tanpa GPU, hapus opsi `--gpus all`; Ollama tetap jalan tapi lebih lambat.
-- Ruang disk sekitar 6 GB untuk model `llama3.1:8b` dan `nomic-embed-text`
+- GPU NVIDIA + driver terbaru untuk Ollama (`--gpus all`). Tanpa GPU, hapus opsi `--gpus all`; Ollama tetap jalan tapi lebih lambat. Penulis menggunakan 8 GB VRAM untuk menjalankan LLM pada Ollama
+- HDD sekitar 6 GB untuk model `llama3.1:8b` dan `nomic-embed-text`
 
-## Cara cepat: pakai script
-
-Script `docker-run.cmd` (CMD/PowerShell) dan `docker-run.sh` (Git Bash) menjalankan semua langkah manual di bawah
-secara otomatis: membuat network, memakai ulang container yang sudah ada, download model Ollama, menunggu MySQL siap,
-lalu build dan menjalankan aplikasi.
-
-```powershell
-.\docker-run.cmd            # jalankan semua service (mysql, redis, ollama, app)
-.\docker-run.cmd mysql      # jalankan satu service saja: mysql | redis | ollama | app
-.\docker-run.cmd build      # build jar + image aplikasi
-.\docker-run.cmd redeploy   # build ulang lalu ganti container aplikasi
-.\docker-run.cmd status     # lihat container yang ada di network demo-net
-.\docker-run.cmd stop       # stop demo-app, demo-mysql, demo-redis (ollama tidak ikut)
-```
-
-Di Git Bash, ganti `.\docker-run.cmd` dengan `./docker-run.sh`; argumennya sama.
-
-## Langkah manual
+## Let's hands on
 
 Perintah di bawah ditulis untuk PowerShell (backtick `` ` `` untuk lanjut baris) dan dijalankan dari folder project.
 
@@ -58,7 +53,7 @@ docker network create demo-net
 
 ```powershell
 docker run -d --name demo-mysql --network demo-net `
-  -p 127.0.0.1:3306:3306 `
+  -p 3306:3306 `
   -e MYSQL_ROOT_PASSWORD=rootpass `
   -e MYSQL_DATABASE=hr `
   -e MYSQL_USER=hr_app `
@@ -78,7 +73,7 @@ docker exec demo-mysql mysqladmin ping -h 127.0.0.1 -uhr_app -phr_app_pass
 
 ```powershell
 docker run -d --name demo-redis --network demo-net `
-  -p 127.0.0.1:6379:6379 `
+  -p 6379:6379 `
   -v demo_redis-data:/data `
   redis:8
 ```
@@ -95,7 +90,7 @@ Kalau belum ada, buat baru:
 
 ```powershell
 docker run -d --name ollama --network demo-net --gpus all `
-  -p 127.0.0.1:11434:11434 `
+  -p 11434:11434 `
   -e OLLAMA_HOST=0.0.0.0:11434 `
   -e OLLAMA_CONTEXT_LENGTH=32768 `
   -v ollama:/root/.ollama `
@@ -109,28 +104,32 @@ docker exec ollama ollama pull llama3.1:8b
 docker exec ollama ollama pull nomic-embed-text
 ```
 
-### 5. Build jar dan image aplikasi
+### 5. Ambil image aplikasi dari Quay
+
+Image aplikasi sudah tersedia di [quay.io/efeluzy/quarkus-rag-redis](https://quay.io/repository/efeluzy/quarkus-rag-redis),
+jadi tidak perlu build sendiri:
 
 ```powershell
-.\mvnw.cmd package -DskipTests
-docker build -f src/main/docker/Dockerfile.jvm -t quarkus/demo-jvm .
+docker pull quay.io/efeluzy/quarkus-rag-redis:latest
 ```
+
+Ingin build image sendiri dari source code? Lihat [Build dan push image](#build-dan-push-image).
 
 ### 6. Jalankan aplikasi
 
-Konfigurasi di `application.properties` menunjuk ke `localhost`; di Docker alamat tersebut ditimpa lewat
-environment variable supaya memakai nama container. Folder `rag-docs` di-mount supaya dokumen RAG bisa diubah tanpa
-build ulang image.
+Konfigurasi di `application.properties` sudah memakai nama container (`ollama`, `demo-mysql`, `demo-redis`).
+Environment variable `-e QUARKUS_...` di bawah opsional; pakai untuk menimpa alamat kalau nama container berbeda.
+Folder `rag-docs` di-mount supaya dokumen RAG bisa diubah tanpa build ulang image.
 
 ```powershell
 docker run -d --name demo-app --network demo-net `
-  -p 127.0.0.1:8080:8080 `
+  -p 8080:8080 `
   -v "${PWD}/rag-docs:/deployments/rag-docs:ro" `
   -e QUARKUS_DATASOURCE_JDBC_URL=jdbc:mysql://demo-mysql:3306/hr `
   -e QUARKUS_REDIS_HOSTS=redis://demo-redis:6379 `
   -e QUARKUS_LANGCHAIN4J_OLLAMA_BASE_URL=http://ollama:11434 `
   -e QUARKUS_LANGCHAIN4J_EASY_RAG_PATH=/deployments/rag-docs `
-  quarkus/demo-jvm
+  quay.io/efeluzy/quarkus-rag-redis:latest
 ```
 
 Lihat log:
@@ -141,7 +140,7 @@ docker logs -f demo-app
 
 Opsi tambahan untuk `demo-app`:
 
-- Remote debug: `-p 127.0.0.1:5005:5005 -e JAVA_DEBUG=true -e JAVA_DEBUG_PORT=*:5005`
+- Remote debug: `-p 5005:5005 -e JAVA_DEBUG=true -e JAVA_DEBUG_PORT=*:5005`
 - Batas memori: `-m 1g`
 
 ## Mencoba aplikasi
@@ -193,16 +192,26 @@ Start lagi container yang sudah ada:
 docker start demo-mysql demo-redis ollama demo-app
 ```
 
-Deploy ulang aplikasi setelah ada perubahan kode:
+Update ke image terbaru di Quay:
 
 ```powershell
 docker rm -f demo-app
-.\mvnw.cmd package -DskipTests
-docker build -f src/main/docker/Dockerfile.jvm -t quarkus/demo-jvm .
+docker pull quay.io/efeluzy/quarkus-rag-redis:latest
 # lalu jalankan lagi perintah di langkah 6
 ```
 
-Atau cukup `.\docker-run.cmd redeploy`.
+## Build dan push image
+
+Setelah ada perubahan kode, build jar dan image, lalu push ke Quay (perlu `docker login quay.io` dengan akun
+yang punya akses tulis):
+
+```powershell
+.\mvnw.cmd package -DskipTests
+docker build -f src/main/docker/Dockerfile.jvm -t quay.io/efeluzy/quarkus-rag-redis:latest .
+docker push quay.io/efeluzy/quarkus-rag-redis:latest
+```
+
+Setelah itu ganti container aplikasi seperti di bagian sebelumnya.
 
 ## Troubleshooting
 
