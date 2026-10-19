@@ -15,7 +15,7 @@ cd quarkus-rag-redis-demo
 
 ## Arsitektur
 
-![High level architecture](architecture.svg)
+<p align="center"><img src="architecture.svg" alt="High level architecture" width="900"></p>
 
 Semua container berada di satu network Docker buatan sendiri, `demo-net`. Di network seperti ini Docker
 menyediakan DNS internal, jadi container saling memanggil pakai nama container-nya.
