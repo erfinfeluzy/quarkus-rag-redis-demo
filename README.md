@@ -1,4 +1,4 @@
-# demo
+# AI Agent with RAG on Redis and Tools
 
 Aplikasi Quarkus (JVM mode) dengan chat AI berbasis Ollama, RAG (embedding disimpan di Redis), dan database MySQL.
 Dokumen ini menjelaskan cara menjalankan semuanya di Docker.
@@ -15,7 +15,7 @@ cd quarkus-rag-redis-demo
 
 ## Arsitektur
 
-<p align="center"><img src="architecture.svg" alt="High level architecture" width="900"></p>
+<p align="center"><img src="architecture.png" alt="High level architecture" width="900"></p>
 
 Semua container berada di satu network Docker buatan sendiri, `demo-net`. Di network seperti ini Docker
 menyediakan DNS internal, jadi container saling memanggil pakai nama container-nya.
